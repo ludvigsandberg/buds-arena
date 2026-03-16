@@ -14,158 +14,111 @@ app.use(express.static("public"))
 
 const upload = multer({ dest: "uploads/" })
 
-const sprites:any = {}
-const players:any = {}
+// --- sprites & players ---
+const sprites: Record<string, any> = {}
+const players: Record<string, any> = {}
 
-const loadedMods = new Set()
+// --- dynamic hooks ---
+const hooks: Record<string, Function[]> = {}
 
-type HookName = "playerJoin" | "playerLeave" | "tick" | "input"
+// --- api exposed to mods ---
+const api: any = {
 
-const hooks: Record<HookName, Function[]> = {
-    playerJoin: [],
-    playerLeave: [],
-    tick: [],
-    input: []
-}
-
-function call(hook: HookName, ...args:any[]) {
-
-    for(const fn of hooks[hook]){
-        fn(...args)
-    }
-
-}
-
-const api = {
-
-    onPlayerJoin(fn:any){hooks.playerJoin.push(fn)},
-    onPlayerLeave(fn:any){hooks.playerLeave.push(fn)},
-    onTick(fn:any){hooks.tick.push(fn)},
-    onInput(fn:any){hooks.input.push(fn)},
-
-    spawnSprite(id:string,url:string,x:number,y:number,w:number,h:number){
-
-        sprites[id]={id,url,x,y,w,h}
-
+    // dynamic hooks
+    on: (hookName: string, fn: Function) => {
+        if (!hooks[hookName]) hooks[hookName] = []
+        hooks[hookName].push(fn)
     },
 
-    moveSprite(id:string,x:number,y:number){
+    trigger: (hookName: string, ...args: any[]) => {
+        if (!hooks[hookName]) return
+        for (const fn of hooks[hookName]) fn(...args)
+    },
 
-        if(sprites[id]){
-            sprites[id].x=x
-            sprites[id].y=y
+    // sprite API
+    spawnSprite: (id: string, url: string, x: number, y: number, w = 64, h = 64, type?: string) => {
+        sprites[id] = { id, url, x, y, w, h, type }
+    },
+
+    moveSprite: (id: string, x: number, y: number, w = 64, h = 64) => {
+        if (sprites[id]) {
+            sprites[id].x = x
+            sprites[id].y = y
+            sprites[id].w = w
+            sprites[id].h = h
         }
-
     },
 
-    getSprite(id:string){
-
-        return sprites[id]
-
-    },
-
-    getSprites(){
-
-        return sprites
-
-    }
-
+    getSprite: (id: string) => sprites[id],
+    getSprites: () => sprites,
 }
 
-async function loadMod(file: string){
+// --- mod loader ---
+const loadedMods = new Set<string>()
 
-    if(loadedMods.has(file)) return
-
-    try{
-
+async function loadMod(file: string) {
+    if (loadedMods.has(file)) return
+    try {
         const fullPath = path.resolve(file)
-
         const url = pathToFileURL(fullPath).href + "?t=" + Date.now()
-
         const mod = await import(url)
-
-        if(mod.init){
-            mod.init(api)
-        }
-
+        if (mod.init) mod.init(api)
         loadedMods.add(file)
-
         console.log("Loaded mod:", file)
-
-    }catch(err){
-
+    } catch (err) {
         console.error("Failed loading mod:", file, err)
-
     }
-
 }
 
-async function loadAllMods(){
-
-    if(!fs.existsSync("mods")) return
-
+async function loadAllMods() {
+    if (!fs.existsSync("mods")) return
     const files = fs.readdirSync("mods")
-
-    for(const f of files){
-
+    for (const f of files) {
         await loadMod("mods/" + f)
-
     }
-
 }
 
-io.on("connection",(socket)=>{
+// --- socket.io connection ---
+io.on("connection", (socket) => {
 
-    players[socket.id]={id:socket.id}
+    players[socket.id] = { id: socket.id, type: "player" }
 
-    call("playerJoin",socket.id)
+    api.trigger("playerJoin", socket.id)
 
-    socket.on("input",(data)=>{
-
-        call("input",socket.id,data)
-
+    socket.on("input", (data) => {
+        api.trigger("input", socket.id, data)
     })
 
-    socket.on("disconnect",()=>{
-
-        call("playerLeave",socket.id)
+    socket.on("disconnect", () => {
+        api.trigger("playerLeave", socket.id)
         delete players[socket.id]
-
     })
 
 })
 
-setInterval(()=>{
+// --- tick loop ---
+setInterval(() => {
+    api.trigger("tick")
+    io.emit("state", sprites)
+}, 50)
 
-    call("tick")
-
-    io.emit("state",sprites)
-
-},50)
-
-app.post("/upload-mod",upload.single("mod"),async(req:any,res)=>{
-
-    const f=req.file
-
-    if(!f){
+// --- mod upload endpoint ---
+app.post("/upload-mod", upload.single("mod"), async (req: any, res: any) => {
+    const f = req.file
+    if (!f) {
         res.status(400).send("no file")
         return
     }
 
-    const dest="mods/"+f.originalname
-
-    fs.renameSync(f.path,dest)
-
+    const dest = "mods/" + f.originalname
+    fs.renameSync(f.path, dest)
     await loadMod(dest)
-
     res.send("mod loaded")
-
 })
 
+// --- load existing mods ---
 loadAllMods()
 
-server.listen(4000,()=>{
-
+server.listen(4000, () => {
     console.log("http://localhost:4000")
-
 })

@@ -4,8 +4,16 @@ const canvas = document.getElementById("game")
 const ctx = canvas.getContext("2d")
 ctx.imageSmoothingEnabled = false;
 
-canvas.width = window.innerWidth
-canvas.height = window.innerHeight
+function resizeCanvas() {
+    canvas.width = canvas.clientWidth
+    canvas.height = canvas.clientHeight
+}
+
+// call once initially
+resizeCanvas()
+
+// call on window resize
+window.addEventListener("resize", resizeCanvas)
 
 let sprites = {}
 let myId = null
@@ -34,6 +42,26 @@ document.addEventListener("keyup", (e) => {
 
     socket.emit("input", { type: "keyup", key: e.key })
 
+})
+
+let mouse = {x:0, y:0}
+
+canvas.addEventListener("mousemove", e => {
+    mouse.x = e.clientX
+    mouse.y = e.clientY
+    socket.emit("input", {type:"mousemove", x: mouse.x, y: mouse.y})
+})
+
+canvas.addEventListener("click", e => {
+    socket.emit("input", {type:"click"})
+})
+
+canvas.addEventListener("click", e => {
+    socket.emit("input", {
+        type: "click",
+        canvasWidth: canvas.width,
+        canvasHeight: canvas.height
+    })
 })
 
 function upload(){
