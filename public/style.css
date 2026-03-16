@@ -1,0 +1,15 @@
+body{
+margin:0;
+background:#111;
+color:white;
+font-family:sans-serif;
+}
+
+canvas{
+display:block;
+border: 1px solid red;
+}
+
+#controls {
+    padding: 2rem;
+}
